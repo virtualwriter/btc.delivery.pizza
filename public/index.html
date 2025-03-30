@@ -216,7 +216,7 @@
     #status-tagline .tooltip {
       visibility: hidden;
       width: 300px;
-      background: linear-gradient(135deg, #0277bd, #0288d trattati1);
+      background: linear-gradient(135deg, #0277bd, #0288d1);
       color: #F9FAFB;
       text-align: center;
       padding: 15px;
@@ -280,12 +280,27 @@
       6: { text: 'Pizza Delivered!', tooltip: 'Multiple confirmations secure your transaction—enjoy your Bitcoin pizza!' }
     };
 
+    async function fetchWithDebug(url) {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) {
+          const text = await response.text();
+          console.error(`Fetch failed for ${url}: ${response.status} - ${text.slice(0, 50)}...`);
+          throw new Error(`Fetch failed: ${response.status}`);
+        }
+        const text = await response.text();
+        console.log(`Raw response from ${url}:`, text.slice(0, 50) + '...');
+        return JSON.parse(text);
+      } catch (err) {
+        console.error(`Error parsing JSON from ${url}:`, err.message);
+        throw err;
+      }
+    }
+
     async function fetchBtcPrice() {
       if (!btcPrice) {
         try {
-          const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd');
-          if (!response.ok) throw new Error('Failed to fetch BTC price');
-          const data = await response.json();
+          const data = await fetchWithDebug('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd');
           btcPrice = data.bitcoin.usd;
         } catch (err) {
           console.error('BTC Price Error:', err.message);
@@ -301,28 +316,36 @@
         alert('Please enter a TXID!');
         return;
       }
-
       try {
-        // Initial API call to /api/track
-        const response = await fetch('/api/track', {
+        let data;
+        const trackResponse = await fetch('/api/track', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ txid })
         });
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to start tracking');
+        if (trackResponse.ok) {
+          data = await trackResponse.json();
+          console.log('Initial API Response:', data.initialStatus);
+        } else {
+          console.warn('API /api/track failed with:', trackResponse.status);
+          const txResponse = await fetch(`https://mempool.space/api/tx/${txid}`);
+          if (!txResponse.ok) throw new Error('Transaction not found');
+          const currentHeight = await fetch('https://mempool.space/api/blocks/tip/height');
+          const txData = await txResponse.json();
+          const heightData = await currentHeight.json();
+          data = {
+            initialStatus: {
+              confirmed: txData.status.confirmed,
+              blockHeight: txData.status.block_height || null,
+              confirmations: txData.status.confirmed ? heightData - txData.status.block_height + 1 : 0
+            }
+          };
         }
-        const data = await response.json();
-        console.log('Initial API Response:', data.initialStatus);
 
-        // Fetch additional transaction details
         txDetails = await fetchTxDetails(txid);
-        const blockchainData = await fetch(`https://blockchain.info/rawtx/${txid}`);
-        if (!blockchainData.ok) throw new Error('Failed to fetch blockchain data');
-        const blockchainTx = await blockchainData.json();
-        broadcastTime = blockchainTx.time && !isNaN(blockchainTx.time) 
-          ? new Date(blockchainTx.time * 1000) 
+        const blockchainData = await fetchWithDebug(`https://blockchain.info/rawtx/${txid}`);
+        broadcastTime = blockchainData.time && !isNaN(blockchainData.time) 
+          ? new Date(blockchainData.time * 1000) 
           : null;
         console.log('Broadcast Time Set:', broadcastTime);
 
@@ -330,7 +353,6 @@
         await fetchBtcPrice();
         updateStages(data.initialStatus.confirmed, data.initialStatus.confirmations, txid);
 
-        // Start WebSocket tracking with Mempool.space
         const ws = new WebSocket('wss://mempool.space/api/v1/ws');
         ws.onopen = () => {
           console.log('Connected to Mempool WebSocket');
@@ -342,7 +364,7 @@
           if (update.txid === txid) {
             clearInterval(pollingInterval);
             pollingInterval = null;
-            updateStages(true, 1, txid); // Assume confirmed on first update
+            updateStages(true, 1, txid);
           }
         };
         ws.onerror = (err) => console.error('WebSocket Error:', err);
@@ -354,9 +376,7 @@
     }
 
     async function fetchTxDetails(txid) {
-      const txResponse = await fetch(`https://mempool.space/api/tx/${txid}`);
-      if (!txResponse.ok) throw new Error('Transaction not found');
-      const txData = await txResponse.json();
+      const txData = await fetchWithDebug(`https://mempool.space/api/tx/${txid}`);
       return { txData };
     }
 
@@ -436,9 +456,7 @@
       const stageMessage = messages[currentStage];
       tagline.innerHTML = `${stageMessage.text}<span class="tooltip">${stageMessage.tooltip}</span>`;
 
-      const feeResponse = await fetch('https://mempool.space/api/v1/fees/recommended');
-      if (!feeResponse.ok) throw new Error('Failed to fetch fee data');
-      const feeData = await feeResponse.json();
+      const feeData = await fetchWithDebug('https://mempool.space/api/v1/fees/recommended');
       const { fastestFee, halfHourFee } = feeData;
 
       const broadcastStr = broadcastTime instanceof Date && !isNaN(broadcastTime) 
@@ -471,8 +489,7 @@
       if (newRecipientAddr) cachedRecipientAddr = newRecipientAddr;
 
       const totalOutputSatoshis = txDetails.txData.vout.reduce((sum, output) => sum + (output.value || 0), 0);
-      const feeSatoshis = txDetails.txData.fee || 0;
-      const btcSent = ((totalOutputSatoshis) / 100000000).toFixed(8);
+      const btcSent = (totalOutputSatoshis / 100000000).toFixed(8);
       const usdSent = btcSent !== 'Unknown' && btcPrice !== 'Unknown' ? (btcSent * btcPrice).toFixed(2) : 'Unknown';
 
       senderAddress.textContent = senderAddr;

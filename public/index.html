@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Pizza Bitcoin Delivery Tracker</title>
+  <title>Bitcoin Pizza Transaction Tracker</title>
   <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@400;600;700;900&display=swap" rel="stylesheet" media="all">
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400&display=swap" rel="stylesheet">
   <style>
@@ -239,7 +239,7 @@
   </style>
 </head>
 <body>
-  <h1>Pizza Bitcoin Delivery Tracker</h1>
+  <h1>Bitcoin Pizza Transaction Tracker</h1>
   <div class="input-container">
     <input id="txidInput" placeholder="Enter Bitcoin TXID">
     <button onclick="startTracking()">Track</button>
@@ -250,12 +250,12 @@
       <div id="amount-box">Amount: <div id="sender-amount"></div></div>
     </div>
     <div id="tracker">
-      <div id="stage1" class="stage stage-1"><span>1</span><div>Order Placed</div><div class="divider"></div></div>
-      <div id="stage2" class="stage stage-2"><span>2</span><div>Order Sent</div><div class="divider"></div></div>
-      <div id="stage3" class="stage stage-3"><span>3</span><div>In the Oven</div><div class="divider"></div></div>
-      <div id="stage4" class="stage stage-4"><span>4</span><div>Pizza Baked</div><div class="divider"></div></div>
-      <div id="stage5" class="stage stage-5"><span>5</span><div>Out for Delivery</div><div class="divider"></div></div>
-      <div id="stage6" class="stage stage-6"><span>6</span><div>Delivered</div><div class="divider"></div></div>
+      <div id="stage1" class="stage stage-1"><span>1</span><div>Created</div><div class="divider"></div></div>
+      <div id="stage2" class="stage stage-2"><span>2</span><div>Broadcasted</div><div class="divider"></div></div>
+      <div id="stage3" class="stage stage-3"><span>3</span><div>Mempool</div><div class="divider"></div></div>
+      <div id="stage4" class="stage stage-4"><span>4</span><div>Mined</div><div class="divider"></div></div>
+      <div id="stage5" class="stage stage-5"><span>5</span><div>Confirmed</div><div class="divider"></div></div>
+      <div id="stage6" class="stage stage-6"><span>6</span><div>X Confirmations</div><div class="divider"></div></div>
     </div>
     <div id="recipient">Recipient: <span id="recipient-address">Unknown</span></div>
   </div>
@@ -272,12 +272,12 @@
     let cachedRecipientAddr = 'Unknown';
     let btcPrice = null;
     const messages = {
-      1: { text: 'Pizza Order Placed!', tooltip: 'Your Bitcoin transaction is created and signed, ready to hit the network.' },
-      2: { text: 'Order Sent to the Kitchen!', tooltip: 'The transaction is broadcasted to Bitcoin nodes across the network.' },
-      3: { text: 'Cooking in the Crypto Oven!', tooltip: 'The transaction is in the mempool, waiting for miners to process it.' },
-      4: { text: 'Pizza Freshly Baked!', tooltip: 'A miner has included your transaction in a block on the blockchain.' },
-      5: { text: 'Out for Delivery!', tooltip: 'The transaction has its first confirmation—almost there!' },
-      6: { text: 'Pizza Delivered!', tooltip: 'Multiple confirmations secure your transaction—enjoy your Bitcoin pizza!' }
+      1: { text: 'Transaction Created!', tooltip: 'The Bitcoin transaction has been signed and prepared for the network.' },
+      2: { text: 'Transaction Broadcasted!', tooltip: 'The transaction has been sent to Bitcoin nodes worldwide.' },
+      3: { text: 'In the Mempool!', tooltip: 'The transaction is queued in the mempool, awaiting miner inclusion.' },
+      4: { text: 'Transaction Mined!', tooltip: 'A miner has added the transaction to a block on the blockchain.' },
+      5: { text: 'Transaction Confirmed!', tooltip: 'The transaction has its first confirmation—almost secure!' },
+      6: { text: 'Transaction Fully Confirmed!', tooltip: 'Multiple confirmations ensure your transaction is secure on the blockchain.' }
     };
 
     async function fetchWithDebug(url) {
@@ -480,7 +480,7 @@
       }
 
       if (txDetails.txData.status.confirmed) {
-        etaStr = `Delivered at ${new Date(txDetails.txData.status.block_time * 1000).toLocaleString()}`;
+        etaStr = `Confirmed at ${new Date(txDetails.txData.status.block_time * 1000).toLocaleString()}`;
       }
 
       let blockHeight = txDetails.txData.status.block_height || 'Not in a block yet';

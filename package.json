@@ -1,17 +1,17 @@
 {
   "name": "bitcoin-tracker",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "api/track.js",
   "scripts": {
+    "start": "node server.js", // Kept for local testing if you want to revert
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "A Bitcoin transaction tracker styled as a pizza delivery app",
   "dependencies": {
     "axios": "^1.8.4",
-    "express": "^4.21.2",
-    "ws": "^8.18.1"
+    "express": "^4.21.2"
   }
 }

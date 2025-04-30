@@ -542,10 +542,15 @@
         ws.onmessage = (event) => {
           const update = JSON.parse(event.data);
           console.log('WebSocket Update:', update);
-          if (update.txid === txid) {
+          if (update.txid === txid && !update['block-height']) {
+            // Handle mempool inclusion (Stage 3)
+            updateStages(false, 0, txid, 3);
+          } else if (update.txid === txid && update['block-height']) {
+            // Handle confirmation (Stage 5 and beyond)
             clearInterval(pollingInterval);
             pollingInterval = null;
             updateStages(true, 1, txid);
+            startPolling(txid); // Start polling to monitor additional confirmations
           }
         };
         ws.onerror = (err) => console.error('WebSocket Error:', err);
@@ -608,14 +613,24 @@
     }
 
     function startPolling(txid) {
+      if (pollingInterval) clearInterval(pollingInterval); // Clear existing interval
       pollingInterval = setInterval(async () => {
         try {
           txDetails = await fetchTxDetails(txid);
           console.log('Polling Data:', txDetails.txData);
+          const currentHeightResponse = await fetch('https://mempool.space/api/blocks/tip/height');
+          const currentHeight = await currentHeightResponse.json();
+          const blockHeight = txDetails.txData.status.block_height || null;
+          const confirmations = txDetails.txData.status.confirmed ? currentHeight - blockHeight + 1 : 0;
+
           if (txDetails.txData.status.confirmed) {
-            clearInterval(pollingInterval);
-            pollingInterval = null;
-            updateStages(true, 1, txid);
+            if (confirmations > 1 && currentStage < 6) {
+              // Transition to Stage 6 if multiple confirmations
+              updateStages(true, confirmations, txid);
+            } else if (currentStage < 5) {
+              // Transition to Stage 5 if confirmed but not yet at Stage 6
+              updateStages(true, 1, txid);
+            }
           } else if (txDetails.txData.status.block_height) {
             updateStages(false, 0, txid, 4);
           } else if (currentStage < 3) {
@@ -625,7 +640,7 @@
         } catch (err) {
           console.log('Polling Error:', err.message);
         }
-      }, 5000);
+      }, 30000); // Poll every 30 seconds to avoid hitting API rate limits
     }
 
     async function updateStatusDetails(txid) {

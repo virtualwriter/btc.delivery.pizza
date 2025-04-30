@@ -29,7 +29,7 @@
       display: inline-flex;
       align-items: center;
       box-shadow: 0 10px 25px rgba(2, 119, 189, 0.3);
-      margin-bottom: 60px;
+      margin-bottom: 20px;
     }
     input {
       padding: 14px 20px;
@@ -58,6 +58,49 @@
     button:hover {
       transform: scale(1.05);
       box-shadow: 0 10px 25px rgba(211, 47, 47, 0.6);
+    }
+    .connect-wallet-btn {
+      border-radius: 40px;
+      margin: 10px;
+      padding: 14px 40px;
+      background: #000000;
+      color: #F9FAFB;
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.4);
+    }
+    .connect-wallet-btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+    }
+    #wallet-form-container {
+      max-width: 500px;
+      margin: 20px auto;
+      background: #F9FAFB;
+      padding: 20px;
+      border-radius: 15px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+      display: none;
+    }
+    #wallet-form-container.active {
+      display: block;
+    }
+    #wallet-form label {
+      display: block;
+      font-size: 16px;
+      font-weight: 600;
+      color: #1a237e;
+      margin-bottom: 5px;
+      text-align: left;
+    }
+    #wallet-form input {
+      width: 100%;
+      border-radius: 10px;
+      margin-bottom: 15px;
+      box-sizing: border-box;
+    }
+    #wallet-status {
+      font-size: 16px;
+      color: #455a64;
+      margin-bottom: 15px;
     }
     #tracker-container {
       display: flex;
@@ -240,6 +283,17 @@
 </head>
 <body>
   <h1>Bitcoin Pizza Transaction Tracker</h1>
+  <button class="connect-wallet-btn" onclick="connectLedger()">Connect Ledger Wallet</button>
+  <div id="wallet-form-container">
+    <div id="wallet-status">Wallet: Disconnected</div>
+    <div id="wallet-form">
+      <label for="recipientAddress">Recipient Address</label>
+      <input id="recipientAddress" placeholder="Enter Bitcoin address (e.g., bc1...)">
+      <label for="amountBtc">Amount (BTC)</label>
+      <input id="amountBtc" type="number" step="0.00000001" placeholder="Enter amount in BTC">
+      <button onclick="sendTransaction()">Send Bitcoin</button>
+    </div>
+  </div>
   <div class="input-container">
     <input id="txidInput" placeholder="Enter Bitcoin TXID">
     <button onclick="startTracking()">Track</button>
@@ -264,6 +318,11 @@
     <div id="status-details"></div>
   </div>
 
+  <script src="https://unpkg.com/bitcoinjs-lib@5.2.0/dist/bitcoinjs-lib.min.js"></script>
+  <script src="https://unpkg.com/@ledgerhq/hw-transport-webusb@6.27.1/lib-es/TransportWebUSB.js"></script>
+  <script src="https://unpkg.com/@ledgerhq/hw-app-btc@6.27.1/lib-es/Btc.js"></script>
+  <script src="https://unpkg.com/bitcoin-address-validation@2.2.3/dist/index.js"></script>
+
   <script>
     let currentStage = 0;
     let broadcastTime = null;
@@ -271,6 +330,9 @@
     let txDetails = {};
     let cachedRecipientAddr = 'Unknown';
     let btcPrice = null;
+    let ledgerTransport = null;
+    let ledgerBtc = null;
+    let ledgerAddress = null;
     const messages = {
       1: { text: 'Transaction Created!', tooltip: 'The Bitcoin transaction has been signed and prepared for the network.' },
       2: { text: 'Transaction Broadcasted!', tooltip: 'The transaction has been sent to Bitcoin nodes worldwide.' },
@@ -279,6 +341,125 @@
       5: { text: 'Transaction Confirmed!', tooltip: 'The transaction has its first confirmation—almost secure!' },
       6: { text: 'Transaction Fully Confirmed!', tooltip: 'Multiple confirmations ensure your transaction is secure on the blockchain.' }
     };
+
+    async function connectLedger() {
+      try {
+        const walletStatus = document.getElementById('wallet-status');
+        walletStatus.textContent = 'Connecting to Ledger...';
+        ledgerTransport = await TransportWebUSB.create();
+        ledgerBtc = new window.bitcoin.AppBtc(ledgerTransport);
+        const { bitcoinAddress } = await ledgerBtc.getWalletPublicKey("44'/0'/0'/0/0");
+        ledgerAddress = bitcoinAddress;
+        walletStatus.textContent = `Wallet: Connected (${bitcoinAddress})`;
+        document.getElementById('wallet-form-container').classList.add('active');
+      } catch (err) {
+        console.error('Ledger Connection Error:', err.message);
+        walletStatus.textContent = 'Wallet: Failed to connect. Please plug in your Ledger and open the Bitcoin app.';
+        alert('Error connecting to Ledger: ' + err.message);
+      }
+    }
+
+    async function sendTransaction() {
+      if (!ledgerBtc || !ledgerAddress) {
+        alert('Please connect your Ledger wallet first!');
+        return;
+      }
+      const recipient = document.getElementById('recipientAddress').value.trim();
+      const amountBtc = parseFloat(document.getElementById('amountBtc').value);
+      if (!recipient || !amountBtc || amountBtc <= 0) {
+        alert('Please enter a valid recipient address and amount.');
+        return;
+      }
+      if (!window.validateBitcoinAddress(recipient)) {
+        alert('Invalid Bitcoin address.');
+        return;
+      }
+
+      try {
+        const walletStatus = document.getElementById('wallet-status');
+        walletStatus.textContent = 'Preparing transaction...';
+
+        // Fetch UTXOs and fee rate
+        const utxosResponse = await fetch(`https://mempool.space/api/address/${ledgerAddress}/utxo`);
+        const utxos = await utxosResponse.json();
+        const feeRateResponse = await fetch('https://mempool.space/api/v1/fees/recommended');
+        const { fastestFee } = await feeRateResponse.json();
+
+        // Convert amount to satoshis
+        const amountSatoshis = Math.round(amountBtc * 100000000);
+        const feeRate = fastestFee; // sat/vB
+        let totalInput = 0;
+        const selectedUtxos = [];
+
+        // Select UTXOs to cover amount + estimated fee
+        for (const utxo of utxos) {
+          selectedUtxos.push(utxo);
+          totalInput += utxo.value;
+          if (totalInput >= amountSatoshis + 1000) break; // Rough fee estimate
+        }
+
+        if (totalInput < amountSatoshis) {
+          alert('Insufficient funds in wallet.');
+          return;
+        }
+
+        // Create transaction
+        const psbt = new bitcoin.Psbt({ network: bitcoin.networks.bitcoin });
+        let inputValue = 0;
+        for (const utxo of selectedUtxos) {
+          const txHex = await (await fetch(`https://mempool.space/api/tx/${utxo.txid}/hex`)).text();
+          psbt.addInput({
+            hash: utxo.txid,
+            index: utxo.vout,
+            nonWitnessUtxo: Buffer.from(txHex, 'hex')
+          });
+          inputValue += utxo.value;
+        }
+
+        psbt.addOutput({
+          address: recipient,
+          value: amountSatoshis
+        });
+
+        // Estimate fee (rough: assume 150 vBytes)
+        const fee = Math.round(feeRate * 150);
+        const change = inputValue - amountSatoshis - fee;
+        if (change > 546) { // Dust threshold
+          psbt.addOutput({
+            address: ledgerAddress,
+            value: change
+          });
+        }
+
+        // Sign transaction with Ledger
+        walletStatus.textContent = 'Please confirm transaction on your Ledger...';
+        for (let i = 0; i < selectedUtxos.length; i++) {
+          await ledgerBtc.signPsbtInput(i, psbt, "44'/0'/0'/0/0");
+        }
+
+        psbt.finalizeAllInputs();
+        const txHex = psbt.extractTransaction().toHex();
+
+        // Broadcast transaction
+        walletStatus.textContent = 'Broadcasting transaction...';
+        const broadcastResponse = await fetch('/api/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ txHex })
+        });
+        if (!broadcastResponse.ok) {
+          throw new Error('Failed to broadcast transaction');
+        }
+        const { txid } = await broadcastResponse.json();
+        walletStatus.textContent = `Transaction sent! TXID: ${txid}`;
+        document.getElementById('txidInput').value = txid;
+        startTracking();
+      } catch (err) {
+        console.error('Transaction Error:', err.message);
+        walletStatus.textContent = 'Wallet: Transaction failed.';
+        alert('Error sending transaction: ' + err.message);
+      }
+    }
 
     async function fetchWithDebug(url) {
       try {
